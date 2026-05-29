@@ -1,6 +1,6 @@
 # NoteNinja 🥷
 
-Local AI meeting note-taker for macOS and Windows. Records in-person meetings or Teams/phone calls, transcribes with OpenAI Whisper, and generates structured notes with Claude. A ninja icon lives in your menu bar (Mac) or system tray (Windows), watches for calls automatically, and sends a desktop notification when one starts.
+Local AI meeting note-taker for macOS and Windows. Records in-person meetings or Teams/phone calls, transcribes with OpenAI Whisper, and generates structured notes with Claude. A ninja icon lives in your menu bar (Mac) or system tray (Windows), watches for calls, and sends a desktop notification when one starts.
 
 No account needed beyond OpenAI and Anthropic. Everything runs locally — your audio never leaves your machine.
 
@@ -12,23 +12,19 @@ No account needed beyond OpenAI and Anthropic. Everything runs locally — your 
 - [OpenAI](https://platform.openai.com/api-keys) — transcribes your audio (~$0.006/min)
 - [Anthropic](https://console.anthropic.com/settings/keys) — writes the meeting notes (~$0.01/meeting)
 
-**2. Run setup** (once — installs everything and puts the icon in your menu bar/tray):
+**2. Run it:**
 ```bash
-./setup.sh      # macOS
-.\setup.ps1     # Windows (PowerShell)
+./nj        # macOS — first run installs everything automatically
+nj.bat      # Windows
 ```
 
-**3. From now on, just use:**
-```bash
-nj          # macOS — opens the CLI  +  starts the 🥷 menu bar icon
-nj.bat      # Windows — opens the CLI  +  starts the NJ tray icon
-```
+That's it. First run detects missing dependencies and sets everything up.
 
-**4. For Teams/phone calls** — install the audio router first:
+**3. For Teams/phone calls** — install the audio router first:
 - macOS → `brew install blackhole-2ch` then follow the [Audio MIDI Setup](#2-configure-audio-midi-setup-one-time) steps below
 - Windows → install [VB-Audio Virtual Cable](https://vb-audio.com/Cable) then follow the [audio routing](#2-configure-audio-routing-one-time) steps below
 
-The 🥷 menu bar icon (Mac) or NJ tray icon (Windows) launches automatically on login and watches for calls in the background.
+The 🥷 menu bar icon (Mac) or NJ tray icon (Windows) watches for calls in the background. To have it start automatically on login, click the icon → **Start at Login**.
 
 ---
 
@@ -171,6 +167,7 @@ The 🥷 icon (Mac) or NJ icon (Windows) lives quietly in the menu bar and watch
 | Recent meetings ▶ | Submenu of last 5 note files — click any to open |
 | Open notes folder | Opens `~/meeting-notes/` in Finder / Explorer |
 | ⏸ Pause watching | Stops auto-detection without quitting |
+| Start at Login | ✓ when enabled — toggles whether the icon starts on login |
 | ⚙ Settings... | Opens the settings window |
 | Quit | Exit |
 
@@ -201,13 +198,9 @@ Notes and transcripts are saved to `~/meeting-notes/`.
 
 ## Run on startup
 
-The menu bar / tray icon is set up as a login item automatically during first launch. It starts silently on login — no terminal window.
+The menu bar / tray icon does **not** start on login by default. To enable it, click the 🥷 icon → **Start at Login**. A checkmark appears when it's on. Click again to turn it off.
 
-To remove it:
-```bash
-nj-remove        # macOS
-nj-remove.bat    # Windows
-```
+No terminal is needed — the icon manages this itself.
 
 ---
 

@@ -2,8 +2,11 @@
 APP_PATH="$HOME/Applications/NoteNinja.app"
 
 echo ""
-echo "Removing NoteNinja login item..."
+echo "Stopping NoteNinja..."
 echo ""
+
+# Kill the running menu bar process
+pkill -f "menubar.py" 2>/dev/null && echo "Menu bar stopped." || echo "Menu bar was not running."
 
 # Remove from Login Items
 osascript <<'SCRIPT'
@@ -14,14 +17,12 @@ tell application "System Events"
 end tell
 SCRIPT
 
-# Delete the app
+# Delete the app bundle
 if [ -d "$APP_PATH" ]; then
     rm -rf "$APP_PATH"
     echo "Deleted: $APP_PATH"
-else
-    echo "NoteNinja.app not found (already removed?)"
 fi
 
 echo ""
-echo "Done. NoteNinja will no longer open on login."
+echo "Done. Run 'nj' to start NoteNinja again."
 echo ""

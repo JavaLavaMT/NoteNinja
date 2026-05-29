@@ -39,6 +39,7 @@ _acquire_lock()
 
 DIR = str(Path(__file__).parent)
 NOTES_DIR = Path.home() / "meeting-notes"
+APP_PATH = Path.home() / "Applications" / "NoteNinja.app"
 SYSTEM = platform.system()
 POLL_INTERVAL = 10
 CALL_AUDIO_THRESHOLD = 300
@@ -50,6 +51,65 @@ RECENT_COUNT = 5
 _watching = True
 _last_alerted = 0
 _teams_alert_active = False
+
+
+def _is_start_at_login():
+    if SYSTEM == "Darwin":
+        result = subprocess.run(
+            ["osascript", "-e",
+             'tell application "System Events" to return (login item "NoteNinja" exists)'],
+            capture_output=True, text=True
+        )
+        return result.stdout.strip() == "true"
+    elif SYSTEM == "Windows":
+        import os
+        startup = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        return (startup / "NoteNinja.bat").exists()
+    return False
+
+
+def _set_start_at_login(enabled):
+    if SYSTEM == "Darwin":
+        if enabled:
+            if not APP_PATH.exists():
+                script = (
+                    f'on run\n'
+                    f'    set ninjaDir to "{DIR}"\n'
+                    f'    do shell script "cd " & quoted form of ninjaDir & " && ./nj menubar > /dev/null 2>&1 &"\n'
+                    f'end run'
+                )
+                subprocess.run(
+                    ["osacompile", "-o", str(APP_PATH), "-"],
+                    input=script, text=True, capture_output=True
+                )
+                subprocess.run(
+                    [sys.executable, str(Path(__file__).parent / "generate_icon.py")],
+                    capture_output=True
+                )
+            subprocess.run(
+                ["osascript"],
+                input=(
+                    'tell application "System Events"\n'
+                    '    if login item "NoteNinja" exists then delete login item "NoteNinja"\n'
+                    f'    make new login item at end of login items with properties {{path:"{APP_PATH}", hidden:false}}\n'
+                    'end tell'
+                ),
+                text=True, capture_output=True
+            )
+        else:
+            subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to if login item "NoteNinja" exists then delete login item "NoteNinja"'],
+                capture_output=True
+            )
+    elif SYSTEM == "Windows":
+        import os
+        startup = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        launcher = startup / "NoteNinja.bat"
+        if enabled:
+            launcher.write_text(f'@echo off\ncd /d "{DIR}"\nstart "" /B pythonw menubar.py\n')
+        else:
+            launcher.unlink(missing_ok=True)
 
 
 def _open_folder():
@@ -171,6 +231,8 @@ def _run_mac():
                                          callback=self._on_alert_clicked)
             self._alert.hidden = True
             self._toggle = rumps.MenuItem("⏸ Pause watching", callback=self._toggle_watching)
+            self._login_item = rumps.MenuItem("Start at Login", callback=self._toggle_start_at_login)
+            self._login_item.state = 1 if _is_start_at_login() else 0
 
             self._recent_menu = rumps.MenuItem("Recent meetings")
             # Populate inline — can't call clear() before menu is attached to the app
@@ -197,6 +259,7 @@ def _run_mac():
                 rumps.MenuItem("Open notes folder", callback=lambda _: _open_folder()),
                 None,
                 self._toggle,
+                self._login_item,
                 rumps.MenuItem("Settings...", callback=self._open_settings),
                 rumps.MenuItem("Quit", callback=rumps.quit_application),
             ]
@@ -257,6 +320,11 @@ def _run_mac():
                 self._alert.hidden = True
                 self.title = "⏸"
 
+        def _toggle_start_at_login(self, sender):
+            enabled = sender.state == 0
+            _set_start_at_login(enabled)
+            sender.state = 1 if enabled else 0
+
     NoteNinjaApp().run()
 
 
@@ -314,6 +382,7 @@ def _run_windows():
                 lambda _: "▶ Resume watching" if not _watching else "⏸ Pause watching",
                 _toggle
             ),
+            pystray.MenuItem("Start at Login", _toggle_login, checked=lambda _: _is_start_at_login()),
             pystray.MenuItem("Settings...", lambda: _open_settings_win()),
             pystray.MenuItem("Quit", lambda: icon_holder[0].stop()),
         ]
@@ -322,6 +391,10 @@ def _run_windows():
     def _toggle(icon, item):
         global _watching
         _watching = not _watching
+        icon.menu = _build_menu()
+
+    def _toggle_login(icon, item):
+        _set_start_at_login(not _is_start_at_login())
         icon.menu = _build_menu()
 
     def _call_detected():

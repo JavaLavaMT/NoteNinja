@@ -3,8 +3,6 @@
 
 $ErrorActionPreference = "Stop"
 $DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
-$StartupFolder = [System.Environment]::GetFolderPath("Startup")
-$LauncherPath = Join-Path $StartupFolder "NoteNinja.bat"
 Set-Location $DIR
 
 Write-Host ""
@@ -42,18 +40,6 @@ if ($currentPath -notlike "*$DIR*") {
     }
 }
 
-# Set up system tray icon as a startup item
-Write-Host ""
-Write-Host "Setting up NJ system tray icon on login..."
-
-@"
-@echo off
-cd /d "$DIR"
-start "" /B pythonw menubar.py
-"@ | Out-File -FilePath $LauncherPath -Encoding ASCII
-
-Write-Host "Done — NoteNinja.bat added to Startup folder."
-
 # Launch the tray icon right now
 Start-Process pythonw -ArgumentList "menubar.py" -WorkingDirectory $DIR
 
@@ -63,9 +49,7 @@ Write-Host "  Setup complete!"
 Write-Host "================================================"
 Write-Host ""
 Write-Host "  The NJ icon is now running in your system tray."
-Write-Host ""
-Write-Host "  To remove the login item:"
-Write-Host "    .\nj-remove.bat"
+Write-Host "  To start it on login automatically, right-click the icon -> Start at Login."
 Write-Host ""
 Write-Host "  Run tests:"
 Write-Host "    .\run.bat pytest tests/ -v"

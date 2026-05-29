@@ -2,8 +2,6 @@
 set -e
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_PATH="$HOME/Applications/NoteNinja.app"
-
 echo ""
 echo "Setting up NoteNinja..."
 echo ""
@@ -63,29 +61,7 @@ if ! grep -qF "$DIR" "$SHELL_RC" 2>/dev/null; then
     fi
 fi
 
-# Set up menu bar icon as a login item
-echo ""
-echo "Setting up 🥷 menu bar icon on login..."
-
-osacompile -o "$APP_PATH" - <<APPLESCRIPT
-on run
-    set ninjaDir to "$DIR"
-    do shell script "cd " & quoted form of ninjaDir & " && ./nj menubar > /dev/null 2>&1 &"
-end run
-APPLESCRIPT
-
-osascript <<LOGINSCRIPT
-tell application "System Events"
-    if login item "NoteNinja" exists then
-        delete login item "NoteNinja"
-    end if
-    make new login item at end of login items with properties {path:"$APP_PATH", hidden:false}
-end tell
-LOGINSCRIPT
-
-echo "Done — NoteNinja.app added to Login Items."
-
-# Apply ninja icon
+# Generate icon
 python "$DIR/generate_icon.py"
 
 # Launch the menu bar icon right now — no need to wait for next login
@@ -97,9 +73,7 @@ echo "  Setup complete!"
 echo "================================================"
 echo ""
 echo "  The 🥷 icon is now running in your menu bar."
-echo ""
-echo "  To remove the login item:"
-echo "    ./nj-remove"
+echo "  To start it on login automatically, click the icon → Start at Login."
 echo ""
 echo "  Run tests:"
 echo "    ./nj pytest tests/ -v"
