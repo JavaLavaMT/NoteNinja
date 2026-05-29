@@ -12,13 +12,19 @@ No account needed beyond OpenAI and Anthropic. Everything runs locally — your 
 - [OpenAI](https://platform.openai.com/api-keys) — transcribes your audio (~$0.006/min)
 - [Anthropic](https://console.anthropic.com/settings/keys) — writes the meeting notes (~$0.01/meeting)
 
-**2. Launch** — setup runs automatically on first run:
+**2. Run setup** (once — installs everything and puts the icon in your menu bar/tray):
 ```bash
-nj          # macOS
-nj.bat      # Windows
+./setup.sh      # macOS
+.\setup.ps1     # Windows (PowerShell)
 ```
 
-**3. For Teams/phone calls** — install the audio router first:
+**3. From now on, just use:**
+```bash
+nj          # macOS — opens the CLI  +  starts the 🥷 menu bar icon
+nj.bat      # Windows — opens the CLI  +  starts the NJ tray icon
+```
+
+**4. For Teams/phone calls** — install the audio router first:
 - macOS → `brew install blackhole-2ch` then follow the [Audio MIDI Setup](#2-configure-audio-midi-setup-one-time) steps below
 - Windows → install [VB-Audio Virtual Cable](https://vb-audio.com/Cable) then follow the [audio routing](#2-configure-audio-routing-one-time) steps below
 
@@ -88,13 +94,19 @@ Open **Audio MIDI Setup** (Spotlight → "Audio MIDI Setup")
 - Teams → Settings → Devices → set **Speaker** to **Multi-Output Device**
 - Switch back to your normal speakers when done
 
-#### 3. Launch
+#### 3. Run setup
+
+```bash
+./setup.sh
+```
+
+This installs all dependencies, adds `nj` to your PATH, puts the 🥷 icon in your menu bar, and launches it immediately.
+
+#### 4. From now on
 
 ```bash
 nj
 ```
-
-Setup installs dependencies, adds `nj` to your PATH, and puts the 🥷 icon in your menu bar — all on first run.
 
 ---
 
@@ -114,15 +126,21 @@ Download the free **VBCABLE** from [vb-audio.com/Cable](https://vb-audio.com/Cab
 - Right-click **CABLE Output** → Properties → **Listen** tab
 - Check **Listen to this device** → set Playback through your speakers/headphones
 
-#### 3. Launch
+#### 3. Run setup
 
 Open PowerShell in the NoteNinja folder:
+
+```powershell
+.\setup.ps1
+```
+
+This installs all dependencies, adds `nj.bat` to your PATH, puts the NJ icon in your system tray, and launches it immediately.
+
+#### 4. From now on
 
 ```bat
 nj.bat
 ```
-
-Setup installs dependencies, adds `nj.bat` to your PATH, and puts the NJ icon in your system tray — all on first run.
 
 ---
 

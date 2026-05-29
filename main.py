@@ -316,18 +316,13 @@ def main():
         print("  [2] Teams / phone call  (BlackHole aggregate device)")
         print("  [3] Choose audio device manually")
         print("  [4] Generate notes from existing transcript")
-        print("  [5] Watch for Teams call  (auto-prompt when call detected)")
-        print("  [6] Exit")
+        print("  [5] Exit")
 
         choice = input("\n> ").strip()
 
-        if choice == "6":
+        if choice == "5":
             print("\n  Goodbye!\n")
             break
-
-        if choice == "5":
-            watch_for_teams(openai_client, claude, hf_token, diarization)
-            continue
 
         if choice == "4":
             transcript_input = input("\n  Path to transcript file: ").strip().strip("'\"")

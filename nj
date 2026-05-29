@@ -19,5 +19,9 @@ elif [ "$1" = "logs" ]; then
     [ -f "$LOG" ] || { echo "No log file yet — run NoteNinja first."; exit 0; }
     tail -f "$LOG"
 else
+    # Auto-start menu bar icon in background if not already running
+    if ! pgrep -f "menubar.py" > /dev/null 2>&1; then
+        python "$DIR/menubar.py" > /dev/null 2>&1 &
+    fi
     python "$DIR/main.py" "$@"
 fi
