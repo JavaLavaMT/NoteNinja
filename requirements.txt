@@ -1,0 +1,8 @@
+anthropic
+openai
+pyannote.audio
+torch
+sounddevice
+soundfile
+numpy
+python-dotenv

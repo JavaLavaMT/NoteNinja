@@ -1,0 +1,24 @@
+# API keys — never commit these
+.env
+
+# Private recordings and notes
+meeting-notes/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# pyannote model cache
+.cache/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
