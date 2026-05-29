@@ -6,3 +6,5 @@ sounddevice
 soundfile
 numpy
 python-dotenv
+psutil
+plyer

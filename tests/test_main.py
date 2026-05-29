@@ -1,6 +1,7 @@
 import os
 import sys
 import pytest
+import psutil
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -66,25 +67,32 @@ class TestFindAggregateDevice:
 
 
 class TestTeamsIsRunning:
-    def test_returns_true_when_pgrep_finds_teams(self):
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        with patch("main.subprocess.run", return_value=mock_result):
+    def _make_proc(self, name):
+        p = MagicMock()
+        p.name.return_value = name
+        return p
+
+    def test_returns_true_when_teams_running(self):
+        procs = [self._make_proc("Microsoft Teams")]
+        with patch("main.psutil.process_iter", return_value=procs):
             assert main.teams_is_running() is True
 
-    def test_returns_false_when_teams_not_found(self):
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        with patch("main.subprocess.run", return_value=mock_result):
+    def test_returns_false_when_teams_not_running(self):
+        procs = [self._make_proc("Finder"), self._make_proc("Safari")]
+        with patch("main.psutil.process_iter", return_value=procs):
             assert main.teams_is_running() is False
 
-    def test_calls_pgrep_with_teams(self):
+    def test_case_insensitive_match(self):
+        procs = [self._make_proc("teams.exe")]
+        with patch("main.psutil.process_iter", return_value=procs):
+            assert main.teams_is_running() is True
+
+    def test_falls_back_to_pgrep_if_psutil_fails(self):
         mock_result = MagicMock()
-        mock_result.returncode = 1
-        with patch("main.subprocess.run", return_value=mock_result) as mock_run:
-            main.teams_is_running()
-            args = mock_run.call_args[0][0]
-            assert "teams" in " ".join(args).lower()
+        mock_result.returncode = 0
+        with patch("main.psutil.process_iter", side_effect=Exception("no psutil")):
+            with patch("main.subprocess.run", return_value=mock_result):
+                assert main.teams_is_running() is True
 
 
 class TestAudioLevel:

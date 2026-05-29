@@ -1,6 +1,8 @@
 # NoteNinja
 
-Local AI meeting note-taker. Records in-person meetings (mic) or phone/Teams calls (BlackHole), transcribes with OpenAI Whisper, and generates structured notes with Claude. Optionally identifies who said what with speaker diarization (runs locally, no extra API cost).
+Local AI meeting note-taker. Records in-person meetings (mic) or phone/Teams calls, transcribes with OpenAI Whisper, and generates structured notes with Claude. Optionally identifies who said what with speaker diarization (runs locally, no extra API cost).
+
+Works on **macOS** and **Windows**. Detects your OS automatically — no flags needed.
 
 ---
 
@@ -24,23 +26,25 @@ HuggingFace setup (one-time, ~5 min):
 2. Go to huggingface.co/pyannote/speaker-diarization-3.1 → click **Agree and access repository**
 3. Go to huggingface.co/pyannote/segmentation-3.0 → click **Agree and access repository**
 4. Go to huggingface.co/settings/tokens → create a token (read-only is fine)
-5. Add it to your `.env` file (see below)
+5. Add `HUGGINGFACE_TOKEN=hf_...` to your `.env` file
 
-The model downloads once (~1 GB) on first use, then runs entirely on your Mac — no audio is uploaded anywhere.
+The model downloads once (~1 GB) on first use, then runs entirely on your machine — no audio is uploaded anywhere.
 
 ---
 
 ## Installation
 
-### 1. Install BlackHole (for recording Teams/phone calls)
+### macOS
+
+#### 1. Install BlackHole (captures Teams/call audio)
 
 ```bash
 brew install blackhole-2ch
 ```
 
-Reboot your Mac after it installs.
+Reboot after it installs.
 
-### 2. Configure Audio MIDI Setup (one-time)
+#### 2. Configure Audio MIDI Setup (one-time)
 
 Open **Audio MIDI Setup** (Spotlight → "Audio MIDI Setup")
 
@@ -62,20 +66,59 @@ Open **Audio MIDI Setup** (Spotlight → "Audio MIDI Setup")
 
 **Before each Teams call:**
 - In Teams → Settings → Devices → set Speaker to **Multi-Output Device**
-- Switch back to your normal speakers/AirPods when done
+- Switch back to your normal speakers when done
 
-### 3. Install NoteNinja
+#### 3. Run setup
 
 ```bash
-cd ~/Desktop/GitHub/projects/NoteNinja
 ./setup.sh
 ```
 
-This creates a Python virtual environment and installs all dependencies.
+#### 4. Start the app
 
-### 4. Add your API keys
+```bash
+./run
+```
 
-The app will ask for your keys on first run and save them to `.env`. Or create the file manually:
+---
+
+### Windows
+
+#### 1. Install VB-Audio Virtual Cable (captures Teams/call audio)
+
+Download and install the free **VBCABLE** from [vb-audio.com/Cable](https://vb-audio.com/Cable).
+
+Reboot after it installs.
+
+#### 2. Configure audio routing (one-time)
+
+**Route Teams audio through the cable:**
+- In Teams → Settings → Devices → set **Speaker** to `CABLE Input (VB-Audio Virtual Cable)`
+
+**So you can still hear the call:**
+- Open **Sound Settings** → More sound settings → **Recording** tab
+- Right-click **CABLE Output (VB-Audio Virtual Cable)** → Properties
+- **Listen** tab → check **Listen to this device** → set Playback through your speakers/headphones
+
+#### 3. Run setup
+
+Open PowerShell in the NoteNinja folder:
+
+```powershell
+.\setup.ps1
+```
+
+#### 4. Start the app
+
+```bat
+.\run.bat
+```
+
+---
+
+## Add your API keys
+
+The app asks for your keys on first run and saves them to `.env`. Or create it manually:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
@@ -87,22 +130,33 @@ HUGGINGFACE_TOKEN=hf_...   # optional, for speaker diarization
 
 ## Usage
 
-```bash
-./run
-```
-
 | Option | Description |
 |---|---|
 | **[1] In-person** | Records from your microphone |
-| **[2] Teams / phone call** | Records from the BlackHole Aggregate Device (both sides) |
+| **[2] Teams / phone call** | Auto-detects BlackHole (Mac) or VB-Audio (Windows) |
 | **[3] Choose device manually** | Pick any input device from a list |
 | **[4] Generate notes from transcript** | Re-run note generation on an existing transcript file |
-| **[5] Exit** | Quit |
+| **[5] Watch for Teams call** | Auto-prompts when a call is detected — sends a desktop notification |
+| **[6] Exit** | Quit |
 
 **While recording:**
 - `p` + Enter → pause
 - `r` + Enter → resume
 - Enter → stop and generate notes
+
+**Watch mode** (starts directly without the menu):
+
+```bash
+./run watch        # macOS
+.\run.bat watch    # Windows
+```
+
+**Run tests:**
+
+```bash
+./run pytest tests/ -v        # macOS
+.\run.bat pytest tests/ -v    # Windows
+```
 
 Notes and transcripts are saved to `~/meeting-notes/`.
 
@@ -111,9 +165,10 @@ Notes and transcripts are saved to `~/meeting-notes/`.
 ## How it works
 
 ```
-Mic / BlackHole Aggregate Device
+Mic + BlackHole Aggregate Device (Mac)
+Mic + VB-Audio CABLE Output (Windows)
         ↓
-  NoteNinja records audio
+  NoteNinja records all channels and mixes to mono
         ↓
   Live preview: Whisper transcribes every 30s and prints to terminal
         ↓

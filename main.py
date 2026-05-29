@@ -1,8 +1,13 @@
 import os
 import time
+import platform
 import subprocess
 from datetime import datetime
 from pathlib import Path
+
+import psutil
+
+SYSTEM = platform.system()  # "Darwin" = macOS, "Windows" = Windows
 
 import numpy as np
 from dotenv import load_dotenv
@@ -76,8 +81,8 @@ def pick_device(devices):
 
 
 def find_aggregate_device(devices):
-    """Return (device_id, name) of the best aggregate/BlackHole device, or None."""
-    priority = ("aggregate", "multi-output", "loopback", "blackhole")
+    """Return (device_id, name) of the best aggregate/BlackHole/VB-Audio device, or None."""
+    priority = ("aggregate", "multi-output", "loopback", "blackhole", "cable output", "vb-audio")
     matches = [d for d in devices if any(k in d[1].lower() for k in priority)]
 
     def _rank(d):
@@ -138,17 +143,27 @@ def process_audio(audio, duration, meeting_name, openai_client, claude, hf_token
 
 
 def notify(title, message):
-    """Send a macOS notification (works even when terminal is minimized)."""
-    subprocess.run(
-        ["osascript", "-e",
-         f'display notification "{message}" with title "{title}" sound name "Glass"'],
-        capture_output=True
-    )
+    """Send a desktop notification (works even when terminal is minimized)."""
+    try:
+        if SYSTEM == "Darwin":
+            subprocess.run(
+                ["osascript", "-e",
+                 f'display notification "{message}" with title "{title}" sound name "Glass"'],
+                capture_output=True
+            )
+        else:
+            from plyer import notification
+            notification.notify(title=title, message=message, app_name="NoteNinja", timeout=10)
+    except Exception:
+        pass
 
 
 def teams_is_running():
-    r = subprocess.run(["pgrep", "-fi", "teams"], capture_output=True)
-    return r.returncode == 0
+    try:
+        return any("teams" in (p.name() or "").lower() for p in psutil.process_iter(["name"]))
+    except Exception:
+        r = subprocess.run(["pgrep", "-fi", "teams"], capture_output=True)
+        return r.returncode == 0
 
 
 def audio_level(device_id, sample_secs=1.5):
@@ -174,8 +189,12 @@ def watch_for_teams(openai_client, claude, hf_token, diarization):
     agg = find_aggregate_device(devices)
 
     if not agg:
-        print("\n  BlackHole Aggregate Device not found.")
-        print("  Set it up in Audio MIDI Setup first (see README).")
+        if SYSTEM == "Darwin":
+            print("\n  BlackHole Aggregate Device not found.")
+            print("  Set it up in Audio MIDI Setup first (see README).")
+        else:
+            print("\n  VB-Audio Virtual Cable not found.")
+            print("  Install it from vb-audio.com/Cable and set Teams output to CABLE Input (see README).")
         return
 
     device_id, device_name = agg
