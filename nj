@@ -1,0 +1,23 @@
+#!/bin/bash
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ ! -d "$DIR/.venv" ]; then
+    echo "First run detected — starting setup..."
+    bash "$DIR/setup.sh"
+fi
+
+source "$DIR/.venv/bin/activate"
+cd "$DIR"
+
+if [ "$1" = "pytest" ]; then
+    shift
+    pytest "$@"
+elif [ "$1" = "menubar" ]; then
+    python "$DIR/menubar.py"
+elif [ "$1" = "logs" ]; then
+    LOG="$HOME/.noteninja.log"
+    [ -f "$LOG" ] || { echo "No log file yet — run NoteNinja first."; exit 0; }
+    tail -f "$LOG"
+else
+    python "$DIR/main.py" "$@"
+fi

@@ -8,3 +8,6 @@ numpy
 python-dotenv
 psutil
 plyer
+rumps; sys_platform == "darwin"
+pystray; sys_platform == "win32"
+pillow

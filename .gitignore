@@ -1,5 +1,6 @@
-# API keys — never commit these
+# API keys and user config — never commit these
 .env
+config.json
 
 # Private recordings and notes
 meeting-notes/
@@ -15,6 +16,9 @@ build/
 
 # pyannote model cache
 .cache/
+
+# Generated icon (built from icon.png during setup)
+NoteNinja.icns
 
 # macOS
 .DS_Store

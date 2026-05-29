@@ -1,8 +1,10 @@
 # NoteNinja Windows Setup
-# Run this once in PowerShell: .\setup.ps1
+# Run once in PowerShell: .\setup.ps1
 
 $ErrorActionPreference = "Stop"
 $DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+$StartupFolder = [System.Environment]::GetFolderPath("Startup")
+$LauncherPath = Join-Path $StartupFolder "NoteNinja.bat"
 Set-Location $DIR
 
 Write-Host ""
@@ -28,16 +30,42 @@ Write-Host "Installing dependencies (first run installs torch ~2 GB, may take a 
 .venv\Scripts\pip install -q -r requirements-dev.txt
 Write-Host "Dependencies installed."
 
+# Optionally add NoteNinja to PATH so "nj" works from anywhere
+$currentPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
+if ($currentPath -notlike "*$DIR*") {
+    $answer = Read-Host "  Add 'nj' as a global command so you can run it from anywhere? [Y/n]"
+    if ($answer -ne "n" -and $answer -ne "N") {
+        [System.Environment]::SetEnvironmentVariable("PATH", "$DIR;$currentPath", "User")
+        Write-Host "  Added. Restart your terminal to activate."
+    } else {
+        Write-Host "  Skipped — you can still run NoteNinja with .\nj.bat from this directory."
+    }
+}
+
+# Set up system tray icon as a startup item
+Write-Host ""
+Write-Host "Setting up NJ system tray icon on login..."
+
+@"
+@echo off
+cd /d "$DIR"
+start "" /B pythonw menubar.py
+"@ | Out-File -FilePath $LauncherPath -Encoding ASCII
+
+Write-Host "Done — NoteNinja.bat added to Startup folder."
+
+# Launch the tray icon right now
+Start-Process pythonw -ArgumentList "menubar.py" -WorkingDirectory $DIR
+
 Write-Host ""
 Write-Host "================================================"
 Write-Host "  Setup complete!"
 Write-Host "================================================"
 Write-Host ""
-Write-Host "  Start NoteNinja:"
-Write-Host "    .\run.bat"
+Write-Host "  The NJ icon is now running in your system tray."
 Write-Host ""
-Write-Host "  Watch for Teams calls automatically:"
-Write-Host "    .\run.bat watch"
+Write-Host "  To remove the login item:"
+Write-Host "    .\nj-remove.bat"
 Write-Host ""
 Write-Host "  Run tests:"
 Write-Host "    .\run.bat pytest tests/ -v"
@@ -56,9 +84,6 @@ Write-Host "       Windows Settings -> Sound -> More sound settings"
 Write-Host "       Recording tab -> CABLE Output -> Properties"
 Write-Host "       Listen tab -> check 'Listen to this device'"
 Write-Host "       Playback through: your speakers or headphones"
-Write-Host ""
-Write-Host "  4. In NoteNinja, choose [2] Teams call"
-Write-Host "       It will auto-detect CABLE Output (VB-Audio Virtual Cable)"
 Write-Host ""
 Write-Host "  -- Optional: Speaker diarization (who said what) --"
 Write-Host ""

@@ -1,0 +1,27 @@
+#!/bin/bash
+APP_PATH="$HOME/Applications/NoteNinja.app"
+
+echo ""
+echo "Removing NoteNinja login item..."
+echo ""
+
+# Remove from Login Items
+osascript <<'SCRIPT'
+tell application "System Events"
+    if login item "NoteNinja" exists then
+        delete login item "NoteNinja"
+    end if
+end tell
+SCRIPT
+
+# Delete the app
+if [ -d "$APP_PATH" ]; then
+    rm -rf "$APP_PATH"
+    echo "Deleted: $APP_PATH"
+else
+    echo "NoteNinja.app not found (already removed?)"
+fi
+
+echo ""
+echo "Done. NoteNinja will no longer open on login."
+echo ""

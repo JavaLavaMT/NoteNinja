@@ -1,13 +1,27 @@
+import logging
 import os
 import time
 import platform
 import subprocess
+import threading
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import psutil
 
 SYSTEM = platform.system()  # "Darwin" = macOS, "Windows" = Windows
+
+LOG_PATH = Path.home() / ".noteninja.log"
+
+def _setup_logging():
+    handler = RotatingFileHandler(LOG_PATH, maxBytes=1_000_000, backupCount=2)
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+                                           datefmt="%Y-%m-%d %H:%M:%S"))
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
+
+_setup_logging()
+log = logging.getLogger("noteninja")
 
 import numpy as np
 from dotenv import load_dotenv
@@ -32,11 +46,28 @@ WATCH_POLL_INTERVAL = 10
 ALERT_COOLDOWN = 60
 
 
+def _load_key_config():
+    config_path = Path(__file__).parent / "config.json"
+    defaults = {"ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY",
+                "OPENAI_API_KEY":    "OPENAI_API_KEY",
+                "HUGGINGFACE_TOKEN": "HUGGINGFACE_TOKEN",
+                "env_file":          str(Path(__file__).parent / ".env")}
+    if config_path.exists():
+        import json
+        try:
+            return {**defaults, **json.loads(config_path.read_text())}
+        except Exception:
+            pass
+    return defaults
+
+
 def get_api_keys():
-    env_path = Path(__file__).parent / ".env"
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    hf_token = os.environ.get("HUGGINGFACE_TOKEN", "")
+    cfg      = _load_key_config()
+    env_path = Path(cfg["env_file"]).expanduser()
+    load_dotenv(env_path)
+    anthropic_key = os.environ.get(cfg["ANTHROPIC_API_KEY"], "")
+    openai_key    = os.environ.get(cfg["OPENAI_API_KEY"], "")
+    hf_token      = os.environ.get(cfg["HUGGINGFACE_TOKEN"], "")
 
     if anthropic_key and openai_key:
         return anthropic_key, openai_key, hf_token
@@ -109,9 +140,11 @@ def make_preview_callback(openai_client):
 def process_audio(audio, duration, meeting_name, openai_client, claude, hf_token, diarization):
     """Transcribe audio and generate notes. Returns (transcript_path, notes_path)."""
     print(f"\n  Captured {duration:.0f}s ({duration / 60:.1f} min)")
+    log.info(f"Recording finished: '{meeting_name}' — {duration:.0f}s ({duration/60:.1f} min)")
     wav_path = recorder.save_wav(audio)
 
     try:
+        log.info("Transcribing...")
         if diarization:
             transcript = transcriber.transcribe_diarized_local(wav_path, openai_client, hf_token)
         else:
@@ -121,6 +154,7 @@ def process_audio(audio, duration, meeting_name, openai_client, claude, hf_token
 
     if not transcript.strip():
         print("  No speech detected in recording.")
+        log.warning("No speech detected in recording.")
         return None, None
 
     safe_name = meeting_name.replace(" ", "_").replace("/", "-")[:40]
@@ -129,11 +163,14 @@ def process_audio(audio, duration, meeting_name, openai_client, claude, hf_token
     transcript_path = OUTPUT_DIR / f"{safe_name}_{ts}_transcript.txt"
     transcript_path.write_text(transcript)
     print(f"  Transcript: {transcript_path}")
+    log.info(f"Transcript saved: {transcript_path}")
 
+    log.info("Generating notes...")
     notes = notes_generator.generate(transcript, meeting_name, claude)
     notes_path = OUTPUT_DIR / f"{safe_name}_{ts}_notes.md"
     notes_path.write_text(notes)
     print(f"  Notes:      {notes_path}\n")
+    log.info(f"Notes saved: {notes_path}")
 
     print("-" * 60)
     print(notes)
@@ -199,42 +236,38 @@ def watch_for_teams(openai_client, claude, hf_token, diarization):
 
     device_id, device_name = agg
     print(f"\n  Watching for Teams calls via: {device_name}")
-    print("  Press Ctrl+C to stop watching.\n")
+    print("  Press Ctrl+C to stop.\n")
+    log.info(f"Watch mode started via: {device_name}")
 
     last_alerted = 0
 
+    def _start_recording(device, meeting_name_default):
+        meeting_name = input(f"  Meeting name (Enter for '{meeting_name_default}'): ").strip()
+        if not meeting_name:
+            meeting_name = meeting_name_default
+        preview_cb = make_preview_callback(openai_client)
+        audio, duration = recorder.record(device_id=device, on_preview_chunk=preview_cb)
+        if audio is not None and duration >= 1:
+            process_audio(audio, duration, meeting_name, openai_client, claude, hf_token, diarization)
+
     try:
         while True:
+            # Auto-detect Teams call
             if teams_is_running():
                 level = audio_level(device_id)
                 now = time.time()
-
                 if level > CALL_AUDIO_THRESHOLD and (now - last_alerted) > ALERT_COOLDOWN:
-                    print(f"\n  Teams call detected! (audio level: {level:.0f})")
+                    print(f"\n  Teams call detected!")
+                    log.info(f"Teams call detected (audio level: {level:.0f})")
                     notify("NoteNinja", "Teams call detected — open NoteNinja to start recording")
                     answer = input("  Start recording? [Y/n]: ").strip().lower()
                     last_alerted = time.time()
-
                     if answer != "n":
-                        meeting_name = input("  Meeting name (Enter to skip): ").strip()
-                        if not meeting_name:
-                            meeting_name = f"Teams Call {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-
-                        preview_cb = make_preview_callback(openai_client)
-                        audio, duration = recorder.record(
-                            device_id=device_id, on_preview_chunk=preview_cb
-                        )
-
-                        if audio is not None and duration >= 1:
-                            process_audio(
-                                audio, duration, meeting_name,
-                                openai_client, claude, hf_token, diarization
-                            )
-
+                        _start_recording(device_id, f"Teams Call {datetime.now().strftime('%Y-%m-%d %H:%M')}")
                         print("\n  Back to watching for Teams calls...")
-                        last_alerted = time.time()  # reset so we don't immediately re-prompt
+                        last_alerted = time.time()
             else:
-                print(f"\r  Teams not running — checking every {WATCH_POLL_INTERVAL}s...", end="", flush=True)
+                print(f"\r  Watching — [m + Enter] for in-person recording...", end="", flush=True)
 
             time.sleep(WATCH_POLL_INTERVAL)
 
@@ -269,6 +302,7 @@ def main():
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     diarization = bool(hf_token)
+    log.info(f"NoteNinja started — diarization={'ON' if diarization else 'OFF'}")
 
     print("\n===========================")
     print("         NoteNinja")
@@ -341,15 +375,52 @@ def main():
             break
 
 
+def quick_record(mode):
+    """Skip the menu and go straight to recording. Used by the menu bar app."""
+    anthropic_key, openai_key, hf_token = get_api_keys()
+    claude = Anthropic(api_key=anthropic_key)
+    openai_client = OpenAI(api_key=openai_key)
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    diarization = bool(hf_token)
+
+    devices = recorder.list_input_devices()
+
+    if mode == "mic":
+        device_id = None
+        default_name = f"In-Person Meeting {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    else:  # teams
+        agg = find_aggregate_device(devices)
+        if not agg:
+            print("\n  Aggregate device not found. Set up BlackHole first (see README).")
+            return
+        device_id, name = agg
+        ch = int(sd.query_devices(device_id)["max_input_channels"])
+        print(f"\n  Using: {name}  ({ch} input channels)")
+        default_name = f"Teams Call {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+
+    meeting_name = input(f"\n  Meeting name (Enter for '{default_name}'): ").strip()
+    if not meeting_name:
+        meeting_name = default_name
+
+    preview_cb = make_preview_callback(openai_client)
+    audio, duration = recorder.record(device_id=device_id, on_preview_chunk=preview_cb)
+
+    if audio is not None and duration >= 1:
+        process_audio(audio, duration, meeting_name, openai_client, claude, hf_token, diarization)
+
+
 if __name__ == "__main__":
     try:
         import sys
-        if len(sys.argv) > 1 and sys.argv[1] == "watch":
+        arg = sys.argv[1] if len(sys.argv) > 1 else None
+        if arg == "watch":
             anthropic_key, openai_key, hf_token = get_api_keys()
             claude = Anthropic(api_key=anthropic_key)
             openai_client = OpenAI(api_key=openai_key)
             OUTPUT_DIR.mkdir(exist_ok=True)
             watch_for_teams(openai_client, claude, hf_token, bool(hf_token))
+        elif arg in ("mic", "teams"):
+            quick_record(arg)
         else:
             main()
     except KeyboardInterrupt:
