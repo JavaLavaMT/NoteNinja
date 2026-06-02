@@ -46,9 +46,10 @@ The 🥷 menu bar icon (Mac) or NJ tray icon (Windows) watches for calls in the 
 HuggingFace setup (5 min, free):
 1. Create an account at huggingface.co
 2. Accept terms at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
-3. Accept terms at [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
-4. Create a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) (read-only is fine)
-5. Add it in **Settings** (click ⚙ in the menu bar icon) or paste into `.env`
+3. Accept terms at [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)
+4. Accept terms at [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+5. Create a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) (read-only is fine)
+6. Add it in **Settings** (click ⚙ in the menu bar icon) or paste into `.env`
 
 The model runs entirely on your machine after download — no audio is ever uploaded.
 
@@ -162,6 +163,7 @@ The 🥷 icon (Mac) or NJ icon (Windows) lives quietly in the menu bar and watch
 |---|---|
 | Watching for calls... | Current status |
 | ⚡ Teams call detected | Appears when a call is active — click to start recording |
+| ⏹ Stop Recording | Appears while a recording is active — click to stop and generate notes |
 | Record in-person meeting | Opens a terminal and starts mic recording immediately |
 | Record Teams call | Opens a terminal and starts Teams call recording |
 | Recent meetings ▶ | Submenu of last 5 note files — click any to open |
@@ -188,9 +190,9 @@ nj-remove        # remove login item (Mac: nj-remove  |  Windows: nj-remove.bat)
 ```
 
 **While recording:**
+- `Esc` → stop and generate notes
 - `p` + Enter → pause
 - `r` + Enter → resume
-- Enter → stop and generate notes
 
 Notes and transcripts are saved to `~/meeting-notes/`.
 

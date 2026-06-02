@@ -1,13 +1,17 @@
+import os
+import sys
 import time
 import wave
 import tempfile
 import threading
+from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
 
 SAMPLE_RATE = 16000
 PREVIEW_INTERVAL = 30  # seconds between live preview transcriptions
+RECORDING_PID_FILE = Path.home() / ".noteninja_recording.pid"
 
 
 def list_input_devices():
@@ -20,10 +24,71 @@ def _device_channels(device_id):
     return max(1, int(info["max_input_channels"]))
 
 
+def _read_commands(stop_event, paused):
+    """Read keypresses: Esc=stop immediately, p+Enter=pause, r+Enter=resume, Enter=stop."""
+    if os.name == "nt":
+        import msvcrt
+        buf = ""
+        while not stop_event.is_set():
+            if msvcrt.kbhit():
+                ch = msvcrt.getwch()
+                if ch == "\x1b":
+                    stop_event.set()
+                    return
+                elif ch in ("\r", "\n"):
+                    cmd = buf.strip().lower()
+                    buf = ""
+                    if cmd == "p":
+                        paused.set()
+                        print("\n  Paused. [r + Enter]=resume  [Esc]=stop")
+                    elif cmd == "r":
+                        paused.clear()
+                        print("\n  Resumed.")
+                    elif cmd == "":
+                        stop_event.set()
+                        return
+                elif ch == "\x08" and buf:
+                    buf = buf[:-1]
+                    sys.stdout.write("\b \b"); sys.stdout.flush()
+                else:
+                    buf += ch
+                    sys.stdout.write(ch); sys.stdout.flush()
+            else:
+                time.sleep(0.05)
+        return
+
+    import select
+    buf = ""
+    while not stop_event.is_set():
+        if select.select([sys.stdin], [], [], 0.1)[0]:
+            ch = sys.stdin.read(1)
+            if ch == "\x1b":
+                stop_event.set()
+                return
+            elif ch in ("\r", "\n"):
+                cmd = buf.strip().lower()
+                buf = ""
+                if cmd == "p":
+                    paused.set()
+                    print("\n  Paused. [r + Enter]=resume  [Esc]=stop")
+                elif cmd == "r":
+                    paused.clear()
+                    print("\n  Resumed.")
+                elif cmd == "":
+                    stop_event.set()
+                    return
+            elif ch == "\x7f" and buf:
+                buf = buf[:-1]
+                sys.stdout.write("\b \b"); sys.stdout.flush()
+            else:
+                buf += ch
+                sys.stdout.write(ch); sys.stdout.flush()
+
+
 def record(device_id=None, on_preview_chunk=None):
     channels = _device_channels(device_id)
     print(f"\n  Recording... ({channels} input channels)")
-    print("  [Enter]=stop   [p + Enter]=pause   [r + Enter]=resume\n")
+    print("  [Esc]=stop   [p + Enter]=pause   [r + Enter]=resume\n")
 
     all_chunks = []
     preview_chunks = []
@@ -73,6 +138,19 @@ def record(device_id=None, on_preview_chunk=None):
         preview_thread = threading.Thread(target=preview_worker, daemon=True)
         preview_thread.start()
 
+    # Set terminal to cbreak mode (single keypress, no Enter needed for Esc)
+    _old_term = None
+    if os.name != "nt":
+        import tty, termios
+        _fd = sys.stdin.fileno()
+        _old_term = termios.tcgetattr(_fd)
+        tty.setcbreak(_fd)
+
+    RECORDING_PID_FILE.write_text(str(os.getpid()))
+
+    cmd_thread = threading.Thread(target=_read_commands, args=(stop_event, paused), daemon=True)
+    cmd_thread.start()
+
     try:
         with sd.InputStream(
             samplerate=SAMPLE_RATE,
@@ -81,19 +159,17 @@ def record(device_id=None, on_preview_chunk=None):
             device=device_id,
             callback=callback,
         ):
-            while True:
-                cmd = input().strip().lower()
-                if cmd == "p":
-                    paused.set()
-                    print("\n  Paused. Type r + Enter to resume, or Enter alone to stop.")
-                elif cmd == "r":
-                    paused.clear()
-                    print("\n  Resumed.")
-                elif cmd == "":
-                    break
+            stop_event.wait()
+    except KeyboardInterrupt:
+        stop_event.set()
     finally:
         stop_event.set()
+        RECORDING_PID_FILE.unlink(missing_ok=True)
+        if _old_term is not None:
+            import termios
+            termios.tcsetattr(_fd, termios.TCSADRAIN, _old_term)
         timer_thread.join(timeout=2)
+        cmd_thread.join(timeout=2)
         print()
 
     with all_lock:

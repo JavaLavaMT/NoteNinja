@@ -69,6 +69,43 @@ def transcribe_chunk(audio, openai_client):
         os.unlink(tmp.name)
 
 
+def _transcribe_with_timestamps(wav_path, openai_client):
+    """Return a flat list of word objects with correct timestamps, chunking if needed."""
+    from types import SimpleNamespace
+
+    def _fetch(path, offset=0.0):
+        with open(path, "rb") as f:
+            result = openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                response_format="verbose_json",
+                timestamp_granularities=["word"],
+            )
+        raw_words = getattr(result, "words", None) or []
+        if offset == 0.0:
+            return raw_words
+        return [
+            SimpleNamespace(word=w.word, start=w.start + offset, end=w.end + offset)
+            for w in raw_words
+        ]
+
+    if os.path.getsize(wav_path) <= MAX_CHUNK_BYTES:
+        return _fetch(wav_path)
+
+    # File too large — split, transcribe each chunk, offset timestamps
+    all_words = []
+    time_offset = 0.0
+    for chunk_path in _split_wav(wav_path):
+        try:
+            with wave.open(chunk_path, "rb") as wf:
+                chunk_duration = wf.getnframes() / wf.getframerate()
+            all_words.extend(_fetch(chunk_path, offset=time_offset))
+            time_offset += chunk_duration
+        finally:
+            os.unlink(chunk_path)
+    return all_words
+
+
 _pipeline = None
 
 
@@ -80,7 +117,7 @@ def _load_pipeline(hf_token):
         print("  Loading speaker diarization model (first run downloads ~1 GB, takes a minute)...")
         _pipeline = Pipeline.from_pretrained(
             "pyannote/speaker-diarization-3.1",
-            use_auth_token=hf_token,
+            token=hf_token,
         )
         if torch.backends.mps.is_available():
             _pipeline = _pipeline.to(torch.device("mps"))
@@ -101,20 +138,25 @@ def transcribe_diarized_local(wav_path, openai_client, hf_token):
     else:
         waveform = waveform.T         # (channels, time)
     audio_input = {"waveform": torch.tensor(waveform), "sample_rate": sample_rate}
-    diarization = pipeline(audio_input)
+    raw = pipeline(audio_input)
+    # Unwrap DiarizeOutput — newer pyannote wraps result in a dataclass
+    if hasattr(raw, "itertracks"):
+        diarization = raw
+    elif hasattr(raw, "speaker_diarization"):
+        diarization = raw.speaker_diarization
+    elif hasattr(raw, "diarization"):
+        diarization = raw.diarization
+    elif hasattr(raw, "annotation"):
+        diarization = raw.annotation
+    else:
+        diarization = raw
 
     print("  Transcribing with word timestamps...")
-    with open(wav_path, "rb") as f:
-        result = openai_client.audio.transcriptions.create(
-            model="whisper-1",
-            file=f,
-            response_format="verbose_json",
-            timestamp_granularities=["word"],
-        )
+    words = _transcribe_with_timestamps(wav_path, openai_client)
 
     # Fall back to plain text if Whisper returned no word timestamps
-    if not getattr(result, "words", None):
-        return result.text or ""
+    if not words:
+        return transcribe(wav_path, openai_client)
 
     # Map pyannote speaker IDs (SPEAKER_00, etc.) to A, B, C...
     speaker_map = {}
@@ -142,7 +184,7 @@ def transcribe_diarized_local(wav_path, openai_client, hf_token):
     current_speaker = None
     current_words = []
 
-    for w in result.words:
+    for w in words:
         mid = (w.start + w.end) / 2
         spk = speaker_at(mid)
         if spk != current_speaker:

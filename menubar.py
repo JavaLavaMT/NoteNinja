@@ -182,8 +182,24 @@ def _send_notification(title, message):
         pass
 
 
-def _watch_loop(on_call_detected, on_call_ended, on_status):
-    """Background thread: polls for Teams call activity."""
+RECORDING_PID_FILE = Path.home() / ".noteninja_recording.pid"
+CONTEXT_FILE = Path.home() / ".noteninja_context.txt"
+
+
+def _stop_recording():
+    """Send SIGINT to the active recording process, if any."""
+    if not RECORDING_PID_FILE.exists():
+        return
+    try:
+        pid = int(RECORDING_PID_FILE.read_text().strip())
+        import signal
+        os.kill(pid, signal.SIGINT)
+    except (ValueError, ProcessLookupError, OSError):
+        RECORDING_PID_FILE.unlink(missing_ok=True)
+
+
+def _watch_loop(on_call_detected, on_call_ended, on_status, on_recording_change):
+    """Background thread: polls for Teams call activity and recording state."""
     from main import teams_is_running, audio_level, find_aggregate_device
     import recorder
 
@@ -191,9 +207,16 @@ def _watch_loop(on_call_detected, on_call_ended, on_status):
 
     devices = recorder.list_input_devices()
     agg = find_aggregate_device(devices)
+    _is_recording = False
 
     while True:
         try:
+            # Detect recording state changes
+            is_recording = RECORDING_PID_FILE.exists()
+            if is_recording != _is_recording:
+                _is_recording = is_recording
+                on_recording_change(is_recording)
+
             if _watching and agg and teams_is_running():
                 level = audio_level(agg[0])
                 now = time.time()
@@ -230,6 +253,8 @@ def _run_mac():
             self._alert = rumps.MenuItem("⚡ Teams call detected — record now",
                                          callback=self._on_alert_clicked)
             self._alert.hidden = True
+            self._stop_rec = rumps.MenuItem("⏹ Stop Recording", callback=self._on_stop_recording)
+            self._stop_rec.hidden = True
             self._toggle = rumps.MenuItem("⏸ Pause watching", callback=self._toggle_watching)
             self._login_item = rumps.MenuItem("Start at Login", callback=self._toggle_start_at_login)
             self._login_item.state = 1 if _is_start_at_login() else 0
@@ -251,6 +276,7 @@ def _run_mac():
             self.menu = [
                 self._status,
                 self._alert,
+                self._stop_rec,
                 None,
                 rumps.MenuItem("Record in-person meeting", callback=lambda _: _open_terminal("./nj mic")),
                 rumps.MenuItem("Record Teams call",        callback=lambda _: _open_terminal("./nj teams")),
@@ -266,7 +292,7 @@ def _run_mac():
 
             threading.Thread(
                 target=_watch_loop,
-                args=(self._call_detected, self._call_ended, self._update_status),
+                args=(self._call_detected, self._call_ended, self._update_status, self._on_recording_change),
                 daemon=True
             ).start()
 
@@ -320,6 +346,26 @@ def _run_mac():
                 self._alert.hidden = True
                 self.title = "⏸"
 
+        def _on_recording_change(self, is_recording):
+            self._stop_rec.hidden = not is_recording
+
+        def _on_stop_recording(self, _):
+            window = rumps.Window(
+                title="Stop Recording",
+                message="Add extra context to help generate better notes\n(job description, agenda, resume — or leave blank):",
+                default_text="",
+                ok="Stop & Generate Notes",
+                cancel="Cancel",
+                dimensions=(450, 100),
+            )
+            response = window.run()
+            if not response.clicked:
+                return
+            ctx = response.text.strip()
+            if ctx:
+                CONTEXT_FILE.write_text(ctx)
+            _stop_recording()
+
         def _toggle_start_at_login(self, sender):
             enabled = sender.state == 0
             _set_start_at_login(enabled)
@@ -363,8 +409,13 @@ def _run_windows():
             ) for f in notes
         ])
 
+    _is_recording = [False]
+
     def _build_menu():
         items = []
+        if _is_recording[0]:
+            items.append(pystray.MenuItem("⏹ Stop Recording", lambda: _stop_recording()))
+            items.append(pystray.Menu.SEPARATOR)
         if _teams_alert_active:
             items.append(pystray.MenuItem(
                 "⚡ Teams call detected — record now",
@@ -411,9 +462,14 @@ def _run_windows():
         if icon_holder[0]:
             icon_holder[0].title = text
 
+    def _on_recording_change(is_recording):
+        _is_recording[0] = is_recording
+        if icon_holder[0]:
+            icon_holder[0].menu = _build_menu()
+
     threading.Thread(
         target=_watch_loop,
-        args=(_call_detected, _call_ended, _update_status),
+        args=(_call_detected, _call_ended, _update_status, _on_recording_change),
         daemon=True
     ).start()
 

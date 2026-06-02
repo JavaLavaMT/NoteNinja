@@ -1,7 +1,7 @@
 from datetime import datetime
 
 
-def generate(transcript, meeting_name, client):
+def generate(transcript, meeting_name, client, extra_context=""):
     print("  Generating notes with Claude...")
 
     date_str = datetime.now().strftime("%B %d, %Y")
@@ -14,6 +14,11 @@ def generate(transcript, meeting_name, client):
         "Attribute action items and decisions to specific speakers. "
         "List attendees as 'Speaker A', 'Speaker B', etc. unless real names are mentioned."
         if has_speakers else ""
+    )
+
+    context_block = (
+        f"\n\nExtra context provided by the user:\n{extra_context}"
+        if extra_context else ""
     )
 
     message = client.messages.create(
@@ -30,7 +35,7 @@ Date: {date_str}{speaker_note}
 Be exhaustive with action items — capture EVERY commitment, task, follow-up, or "we should X" no matter how casually mentioned. Always include specific times, dates, or deadlines when stated. Do not summarize away specifics.
 
 Transcript:
-{transcript}
+{transcript}{context_block}
 
 ---
 

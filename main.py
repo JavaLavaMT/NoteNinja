@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore", message="torchcodec")
+
 import logging
 import os
 import time
@@ -13,6 +16,7 @@ import psutil
 SYSTEM = platform.system()  # "Darwin" = macOS, "Windows" = Windows
 
 LOG_PATH = Path.home() / ".noteninja.log"
+CONTEXT_FILE = Path.home() / ".noteninja_context.txt"
 
 def _setup_logging():
     handler = RotatingFileHandler(LOG_PATH, maxBytes=1_000_000, backupCount=2)
@@ -126,22 +130,93 @@ def find_aggregate_device(devices):
     return matches[0] if matches else None
 
 
+LIVE_TRANSCRIPT_PATH = Path.home() / ".noteninja_live_transcript.txt"
+
+
 def make_preview_callback(openai_client):
+    LIVE_TRANSCRIPT_PATH.unlink(missing_ok=True)
+
     def on_chunk(audio):
         try:
             text = transcriber.transcribe_chunk(audio, openai_client)
             if text.strip():
                 print(f"\n\n  [Live transcript]\n  {text.strip()}\n")
+                with open(LIVE_TRANSCRIPT_PATH, "a") as f:
+                    f.write(text.strip() + "\n")
         except Exception as e:
             print(f"\n  [Preview error: {e}]")
     return on_chunk
 
 
-def process_audio(audio, duration, meeting_name, openai_client, claude, hf_token, diarization):
+def _read_context_file(path):
+    """Read a dragged-in file and return its text content."""
+    suffix = path.suffix.lower()
+    if suffix in (".txt", ".md"):
+        return path.read_text(errors="replace").strip()
+    if suffix == ".pdf":
+        try:
+            import pdfplumber
+            with pdfplumber.open(path) as pdf:
+                return "\n".join(p.extract_text() or "" for p in pdf.pages).strip()
+        except ImportError:
+            pass
+        try:
+            from PyPDF2 import PdfReader
+            reader = PdfReader(str(path))
+            return "\n".join(p.extract_text() or "" for p in reader.pages).strip()
+        except ImportError:
+            print("  (Install pdfplumber to read PDFs: pip install pdfplumber)")
+            return ""
+    if suffix in (".docx", ".doc"):
+        try:
+            import docx
+            return "\n".join(p.text for p in docx.Document(str(path)).paragraphs).strip()
+        except ImportError:
+            print("  (Install python-docx to read Word files: pip install python-docx)")
+            return ""
+    return path.read_text(errors="replace").strip()
+
+
+def get_extra_context():
+    """Return extra context — from the context file (menu bar stop) or a terminal prompt."""
+    if CONTEXT_FILE.exists():
+        ctx = CONTEXT_FILE.read_text().strip()
+        CONTEXT_FILE.unlink(missing_ok=True)
+        return ctx
+    print("\n  Add extra context? (e.g. job description, agenda, resume)")
+    print("  Drag & drop a file, paste text, or press Enter to skip:\n")
+    lines = []
+    try:
+        while True:
+            line = input("  ")
+            if not line:
+                break
+            lines.append(line)
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+    raw = "\n".join(lines).strip().strip("'\"")
+    if not raw:
+        return ""
+
+    # If the input looks like a single file path, read the file
+    candidate = Path(raw).expanduser()
+    if candidate.exists() and candidate.is_file():
+        print(f"  Reading: {candidate.name}...")
+        return _read_context_file(candidate)
+
+    return raw
+
+
+def process_audio(audio, duration, meeting_name, openai_client, claude, hf_token, diarization, extra_context=""):
     """Transcribe audio and generate notes. Returns (transcript_path, notes_path)."""
     print(f"\n  Captured {duration:.0f}s ({duration / 60:.1f} min)")
     log.info(f"Recording finished: '{meeting_name}' — {duration:.0f}s ({duration/60:.1f} min)")
+    safe_name = meeting_name.replace(" ", "_").replace("/", "-")[:40]
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     wav_path = recorder.save_wav(audio)
+    saved_wav = OUTPUT_DIR / f"{safe_name}_{ts}_audio.wav"
 
     try:
         log.info("Transcribing...")
@@ -150,15 +225,16 @@ def process_audio(audio, duration, meeting_name, openai_client, claude, hf_token
         else:
             transcript = transcriber.transcribe(wav_path, openai_client)
     finally:
-        os.unlink(wav_path)
+        import shutil
+        shutil.move(wav_path, saved_wav)
 
     if not transcript.strip():
         print("  No speech detected in recording.")
         log.warning("No speech detected in recording.")
         return None, None
 
-    safe_name = meeting_name.replace(" ", "_").replace("/", "-")[:40]
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    print(f"  Audio:      {saved_wav}")
+    log.info(f"Audio saved: {saved_wav}")
 
     transcript_path = OUTPUT_DIR / f"{safe_name}_{ts}_transcript.txt"
     transcript_path.write_text(transcript)
@@ -166,11 +242,12 @@ def process_audio(audio, duration, meeting_name, openai_client, claude, hf_token
     log.info(f"Transcript saved: {transcript_path}")
 
     log.info("Generating notes...")
-    notes = notes_generator.generate(transcript, meeting_name, claude)
+    notes = notes_generator.generate(transcript, meeting_name, claude, extra_context)
     notes_path = OUTPUT_DIR / f"{safe_name}_{ts}_notes.md"
     notes_path.write_text(notes)
     print(f"  Notes:      {notes_path}\n")
     log.info(f"Notes saved: {notes_path}")
+    LIVE_TRANSCRIPT_PATH.unlink(missing_ok=True)
 
     print("-" * 60)
     print(notes)
@@ -295,11 +372,47 @@ def do_recording(choice, devices, openai_client):
     return recorder.record(device_id=device_id, on_preview_chunk=preview_cb)
 
 
+def check_interrupted_recording():
+    """Warn the user if a live transcript from a crashed recording exists."""
+    if not LIVE_TRANSCRIPT_PATH.exists():
+        return
+    size = LIVE_TRANSCRIPT_PATH.stat().st_size
+    if size == 0:
+        LIVE_TRANSCRIPT_PATH.unlink(missing_ok=True)
+        return
+    from datetime import datetime
+    mtime = datetime.fromtimestamp(LIVE_TRANSCRIPT_PATH.stat().st_mtime)
+    print(f"\n  ⚠️  Found a partial live transcript from a recording that didn't finish")
+    print(f"     ({mtime.strftime('%B %d at %I:%M %p')}, {size // 1024} KB)")
+    print(f"     Saved at: {LIVE_TRANSCRIPT_PATH}")
+    ans = input("  Generate notes from it now? [Y/n] ").strip().lower()
+    if ans in ("n", "no"):
+        return
+    transcript = LIVE_TRANSCRIPT_PATH.read_text().strip()
+    meeting_name = input("  Meeting name (Enter to skip): ").strip() or "Recovered Recording"
+    return transcript, meeting_name
+
+
 def main():
     anthropic_key, openai_key, hf_token = get_api_keys()
     claude = Anthropic(api_key=anthropic_key)
     openai_client = OpenAI(api_key=openai_key)
     OUTPUT_DIR.mkdir(exist_ok=True)
+
+    recovered = check_interrupted_recording()
+    if recovered:
+        transcript, meeting_name = recovered
+        extra_context = get_extra_context()
+        notes = notes_generator.generate(transcript, meeting_name, claude, extra_context)
+        safe_name = meeting_name.replace(" ", "_").replace("/", "-")[:40]
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        notes_path = OUTPUT_DIR / f"{safe_name}_{ts}_notes.md"
+        notes_path.write_text(notes)
+        print(f"\n  Notes: {notes_path}\n")
+        print("-" * 60)
+        print(notes)
+        print("-" * 60)
+        LIVE_TRANSCRIPT_PATH.unlink(missing_ok=True)
 
     diarization = bool(hf_token)
     log.info(f"NoteNinja started — diarization={'ON' if diarization else 'OFF'}")
@@ -325,8 +438,36 @@ def main():
             break
 
         if choice == "4":
-            transcript_input = input("\n  Path to transcript file: ").strip().strip("'\"")
-            transcript_path = Path(transcript_input).expanduser()
+            # Show recent transcripts as a pick list
+            recent = sorted(
+                list(OUTPUT_DIR.glob("*_transcript.txt")) +
+                [f for f in OUTPUT_DIR.glob("*.txt") if not f.name.endswith("_transcript.txt")],
+                key=lambda f: f.stat().st_mtime,
+                reverse=True
+            )[:10] if OUTPUT_DIR.exists() else []
+
+            transcript_path = None
+            if recent:
+                print()
+                for i, f in enumerate(recent, 1):
+                    label = f.stem.replace("_transcript", "").replace("_", " ")
+                    mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime("%b %d %I:%M %p")
+                    print(f"  [{i}] {label}  ({mtime})")
+                print(f"\n  [p] Paste a file path instead")
+                pick = input("\n> ").strip().lower()
+                if pick == "p":
+                    raw = input("\n  Path: ").strip().strip("'\"")
+                    transcript_path = Path(raw).expanduser()
+                elif pick.isdigit() and 1 <= int(pick) <= len(recent):
+                    transcript_path = recent[int(pick) - 1]
+                else:
+                    print("  Invalid selection.")
+                    continue
+            else:
+                print(f"\n  No transcripts found in {OUTPUT_DIR}")
+                raw = input("  Paste a file path: ").strip().strip("'\"")
+                transcript_path = Path(raw).expanduser()
+
             if not transcript_path.exists():
                 print(f"  File not found: {transcript_path}")
                 continue
@@ -336,7 +477,8 @@ def main():
                 meeting_name = transcript_path.stem.replace("_transcript", "").replace("_", " ")
 
             transcript = transcript_path.read_text()
-            notes = notes_generator.generate(transcript, meeting_name, claude)
+            extra_context = get_extra_context()
+            notes = notes_generator.generate(transcript, meeting_name, claude, extra_context)
 
             notes_path = transcript_path.parent / transcript_path.name.replace("_transcript.txt", "_notes.md")
             if notes_path == transcript_path:
@@ -363,7 +505,8 @@ def main():
             print("\n  No audio captured.")
             continue
 
-        process_audio(audio, duration, meeting_name, openai_client, claude, hf_token, diarization)
+        extra_context = get_extra_context()
+        process_audio(audio, duration, meeting_name, openai_client, claude, hf_token, diarization, extra_context)
 
         if input("\n  Record another meeting? [y/N] ").strip().lower() != "y":
             print("\n  Goodbye!\n")
@@ -401,7 +544,8 @@ def quick_record(mode):
     audio, duration = recorder.record(device_id=device_id, on_preview_chunk=preview_cb)
 
     if audio is not None and duration >= 1:
-        process_audio(audio, duration, meeting_name, openai_client, claude, hf_token, diarization)
+        extra_context = get_extra_context()
+        process_audio(audio, duration, meeting_name, openai_client, claude, hf_token, diarization, extra_context)
 
 
 if __name__ == "__main__":
