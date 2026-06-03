@@ -6,6 +6,32 @@ No account needed beyond OpenAI and Anthropic. Everything runs locally — your 
 
 ---
 
+## Table of Contents
+
+**Getting started**
+- [Quick Start](#tldr--quick-start)
+- [What you need](#what-you-need)
+
+**Desktop app**
+- [Running on macOS](#macos)
+- [Running on Windows](#windows)
+- [Menu bar & system tray](#menu-bar--system-tray)
+- [CLI commands](#cli-usage)
+- [Start on login](#run-on-startup)
+
+**Features**
+- [Adding extra context to notes](#extra-context)
+- [API keys & settings](#api-keys--settings)
+- [Crash recovery](#how-it-works)
+
+**For developers**
+- [JavaScript SDK](#javascript-sdk)
+- [How it works](#how-it-works)
+- [Run tests](#run-tests)
+- [Privacy](#privacy)
+
+---
+
 ## TL;DR — Quick Start
 
 **1. Get API keys:**
@@ -181,12 +207,11 @@ The 🥷 icon (Mac) or NJ icon (Windows) lives quietly in the menu bar and watch
 
 ```bash
 nj               # interactive menu
-nj watch         # watch for Teams calls in the terminal (shows live status)
-nj menubar       # launch menu bar / tray icon
+nj menubar       # launch menu bar / tray icon only
 nj mic           # skip menu — record with mic immediately
 nj teams         # skip menu — record Teams call immediately
 nj logs          # tail the live log file (~/.noteninja.log)
-nj-remove        # remove login item (Mac: nj-remove  |  Windows: nj-remove.bat)
+nj-remove        # stop the menu bar and remove login item
 ```
 
 **While recording:**
@@ -194,7 +219,27 @@ nj-remove        # remove login item (Mac: nj-remove  |  Windows: nj-remove.bat)
 - `p` + Enter → pause
 - `r` + Enter → resume
 
-Notes and transcripts are saved to `~/meeting-notes/`.
+**After every recording** you'll be prompted to add extra context (job description, agenda, resume, etc.) before notes are generated. Drag & drop a file into the terminal or paste text — blank line to skip.
+
+Notes, transcripts, and audio are saved to `~/meeting-notes/`.
+
+---
+
+## Extra context
+
+NoteNinja lets you give Claude additional context before generating notes — useful for interviews, sales calls, or any meeting where background information helps.
+
+**After recording stops**, you'll see:
+```
+  Add extra context? (e.g. job description, agenda, resume)
+  Drag & drop a file, paste text, or press Enter to skip:
+```
+
+Drag in a `.txt`, `.md`, `.pdf`, or `.docx` file, or just paste text directly. Press Enter on a blank line when done.
+
+**Via the menu bar** — clicking ⏹ Stop Recording shows a dialog to enter context before stopping.
+
+**When regenerating notes** (option 4 in the CLI), the same prompt appears so you can add context to any past recording.
 
 ---
 
@@ -203,6 +248,47 @@ Notes and transcripts are saved to `~/meeting-notes/`.
 The menu bar / tray icon does **not** start on login by default. To enable it, click the 🥷 icon → **Start at Login**. A checkmark appears when it's on. Click again to turn it off.
 
 No terminal is needed — the icon manages this itself.
+
+---
+
+## JavaScript SDK
+
+NoteNinja exposes a local REST API and an npm-compatible SDK so you can embed recording into any web app — audio stays on the user's machine, users bring their own API keys.
+
+```js
+const NoteNinja = require('./sdk')
+
+const nn = new NoteNinja({
+  openaiKey:    process.env.OPENAI_API_KEY,
+  anthropicKey: process.env.ANTHROPIC_API_KEY,
+})
+
+await nn.start()  // boots the local Python server on localhost:7627
+
+const session = await nn.startRecording({ meetingName: 'Candidate Interview' })
+
+// ... meeting happens ...
+
+const { transcript, notes } = await session.stop({
+  extraContext: 'Interviewing for junior developer role. See attached resume.',
+})
+
+await nn.stop()
+```
+
+**Other SDK methods:**
+```js
+await nn.devices()                          // list audio input devices
+await nn.generateNotes(transcript, { extraContext: '...' }) // notes from existing transcript
+```
+
+**Run the API server standalone:**
+```bash
+python server.py            # starts on localhost:7627
+python server.py --port 8000
+```
+
+The server auto-loads API keys from your `.env` file or environment variables. See `server.py` for the full API reference (`GET /health`, `GET /api/devices`, `POST /api/record/start`, `POST /api/record/stop`, `GET /api/record/status`, `POST /api/notes`).
 
 ---
 
@@ -224,6 +310,7 @@ Mic + VB-Audio CABLE Output (Windows)
   Records all audio channels, mixes to mono
         ↓
   Live preview: Whisper transcribes every 30s and prints to terminal
+  (chunks saved to ~/.noteninja_live_transcript.txt as a crash backup)
         ↓
   Final transcription:
     • With HuggingFace token → pyannote diarization + Whisper word timestamps
@@ -233,9 +320,12 @@ Mic + VB-Audio CABLE Output (Windows)
   Claude generates structured notes
   (attendees, key points, decisions, action items with times/owners)
         ↓
-  Saved to ~/meeting-notes/MeetingName_timestamp_notes.md
+  Saved to ~/meeting-notes/MeetingName_timestamp_audio.wav
              ~/meeting-notes/MeetingName_timestamp_transcript.txt
+             ~/meeting-notes/MeetingName_timestamp_notes.md
 ```
+
+**Crash recovery:** If a recording is interrupted, the live transcript chunks are preserved in `~/.noteninja_live_transcript.txt`. The next time you open `nj`, it detects the file and offers to generate notes from it.
 
 ---
 
@@ -245,4 +335,4 @@ Mic + VB-Audio CABLE Output (Windows)
 - Transcripts are sent to Anthropic Claude for note generation (their [privacy policy](https://www.anthropic.com/privacy))
 - With HuggingFace diarization: audio is processed **entirely locally** — nothing uploaded
 - API keys are stored in your local env file only
-- Meeting notes and transcripts are saved only to your machine (`~/meeting-notes/`)
+- Meeting notes, transcripts, and audio are saved only to your machine (`~/meeting-notes/`)

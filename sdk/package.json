@@ -1,0 +1,9 @@
+{
+  "name": "noteninja",
+  "version": "0.1.0",
+  "description": "Local AI meeting recorder & note generator — bring your own API keys, audio never leaves your machine",
+  "main": "index.js",
+  "keywords": ["meetings", "transcription", "notes", "ai", "whisper", "claude"],
+  "license": "MIT",
+  "engines": { "node": ">=18" }
+}

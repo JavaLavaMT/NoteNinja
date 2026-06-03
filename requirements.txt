@@ -1,4 +1,7 @@
 anthropic
+fastapi
+uvicorn[standard]
+python-multipart
 openai
 pyannote.audio
 torch
